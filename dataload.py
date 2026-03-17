@@ -133,3 +133,53 @@ def build_saluki_dataset(cross):
     ds_test  = Dataset.from_list([{"5utr": seq[0], "cds": seq[1], "3utr": seq[2], "label": y} for seq, y in zip(test_seqs, test_ys)])
 
     return ds_train, ds_valid, ds_test
+
+
+def build_readthrough_dataset():
+    """
+    Loads and processes the readthrough dataset.
+    - Reads 'cds', '3utr', and 'rrts' columns from a CSV.
+    - The 5'UTR is intentionally left as an empty string.
+    """
+    def load_dataset(data_path, split):
+        df = pd.read_csv(data_path)
+        # Assumes your CSV has a 'split' column ('train', 'valid', 'test')
+        df = df[df["split"] == split]
+        df = df.dropna(subset=["cds", "3utr", "rrts"])
+
+        # Extract columns
+        cds_sequences = df["cds"].values.tolist()
+        utr3_sequences = df["3utr"].values.tolist()
+        labels = df["rrts"].values.tolist()
+        
+        # --- Key change: Provide an empty string for the 5'UTR ---
+        # The model expects three inputs, so we provide an empty one it can ignore.
+        
+        
+        # Tokenize the sequences with spaces
+        #utr5_tokenized = [" ".join(mytok(seq, 1, 1)) for seq in utr5_sequences]
+        cds_tokenized  = [" ".join(mytok(seq, 3, 3)) for seq in cds_sequences]
+        utr3_tokenized = [" ".join(mytok(seq, 1, 1)) for seq in utr3_sequences]
+        
+        # Combine into a list of tuples
+        all_seqs = list(zip(cds_tokenized, utr3_tokenized))
+        
+        assert len(all_seqs) == len(labels)
+        
+        return all_seqs, labels
+
+    # --- IMPORTANT: Change this filename to your actual CSV file ---
+    csv_path = "/content/drive/MyDrive/Readthrough_project/mRNA-LM-Readthrough/data/readthrough_data.csv"
+
+    train_seqs, train_ys = load_dataset(csv_path, "train")
+    valid_seqs, valid_ys = load_dataset(csv_path, "valid")
+    test_seqs, test_ys   = load_dataset(csv_path, "test")
+
+    # Create Hugging Face Dataset objects
+    ds_train = Dataset.from_list([{ "cds": seq[0], "3utr": seq[1], "label": y} for seq, y in zip(train_seqs, train_ys)])
+    ds_valid = Dataset.from_list([{ "cds": seq[0], "3utr": seq[1], "label": y} for seq, y in zip(valid_seqs, valid_ys)])
+    ds_test  = Dataset.from_list([{ "cds": seq[0], "3utr": seq[1], "label": y} for seq, y in zip(test_seqs, test_ys)])
+
+    return ds_train, ds_valid, ds_test    
+
+

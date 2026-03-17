@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Data
+data/
+datasets/
+
+# Model outputs
+checkpoints/
+runs/
+outputs/
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+
+# Arrays / tensors
+*.npy
+*.npz
+*.pkl
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+
+# Editors
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
