@@ -1,0 +1,2 @@
+Run: run_A_baseline
+Args: --lr 1e-4 --lorar 32 --lalpha 32 --ldropout 0.5 --head_dropout 0.5
