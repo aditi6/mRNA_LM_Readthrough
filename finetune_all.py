@@ -21,7 +21,7 @@ parser.add_argument('--output', '-o', required=True, type=str, default="", help=
 parser.add_argument('--lorar',    type=int, default=32, help='Lora rank')
 parser.add_argument('--lalpha',   type=int, default=32, help='Lora alpha')
 parser.add_argument('--ldropout', type=int, default=0.5, help='Lora dropout')
-parser.add_argument('--lr',       type=float, default=1e-5, help='learning rate')
+parser.add_argument('--lr',       type=float, default=1e-4, help='learning rate')
 
 parser.add_argument('--head_dim', type=int, default=768, help='production head dimension')
 parser.add_argument('--head_dropout', type=float, default=0.5, help='production head dropout')
@@ -52,8 +52,8 @@ if args.task == "5class":
     class_weights = [0.97326057, 0.48056585, 1.24829396, 1.44412955, 2.51197183]
     metric_for_best_model = "auroc"
 elif args.task == "readthrough":
-    num_labels =2
-    class_weights = [0.5,0.5]  
+    num_labels = 2
+    class_weights = [1.46, 0.76]
     metric_for_best_model = "auroc"
 else:
     metric_for_best_model = "spearmanr"
@@ -99,6 +99,8 @@ training_args = TrainingArguments(
     save_total_limit = 3,
     eval_steps=1,
     logging_steps=50,
+    lr_scheduler_type="cosine",
+    warmup_ratio=0.1,
     report_to="none",
     save_safetensors=False,
 )
