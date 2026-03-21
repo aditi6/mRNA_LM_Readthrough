@@ -14,7 +14,6 @@ env/
 *.log
 
 # Data
-data/
 datasets/
 
 # Model outputs
