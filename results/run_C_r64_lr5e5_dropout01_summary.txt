@@ -1,0 +1,2 @@
+Run: run_C_r64_lr5e5_dropout01
+Args: --lr 5e-5 --lorar 64 --lalpha 128 --ldropout 0.1 --head_dropout 0.1
