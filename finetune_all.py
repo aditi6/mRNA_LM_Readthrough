@@ -21,7 +21,7 @@ parser.add_argument('--output', '-o', required=True, type=str, default="", help=
 parser.add_argument('--lorar',    type=int, default=32, help='Lora rank')
 parser.add_argument('--lalpha',   type=int, default=32, help='Lora alpha')
 parser.add_argument('--ldropout', type=int, default=0.5, help='Lora dropout')
-parser.add_argument('--lr',       type=float, default=2e-5, help='learning rate')
+parser.add_argument('--lr',       type=float, default=1e-5, help='learning rate')
 
 parser.add_argument('--head_dim', type=int, default=768, help='production head dimension')
 parser.add_argument('--head_dropout', type=float, default=0.5, help='production head dropout')
@@ -86,52 +86,23 @@ training_args = TrainingArguments(
     learning_rate=args.lr,                     # learning rate
     output_dir=args.output,                    # output directory to where save model checkpoint
     eval_strategy="epoch",                     # evaluate each `logging_steps` steps
-    #overwrite_output_dir=True,      
-    num_train_epochs=10,                      # number of training epochs, feel free to tweak
-    per_device_train_batch_size=4,    # the training batch size, put it as high as your GPU memory fits
-    per_device_eval_batch_size=4,     # evaluation batch size
-    gradient_accumulation_steps=8,
-    fp16=True,
-    save_strategy="epoch", 
-    save_steps=1,                              # save model 
+    overwrite_output_dir=True,
+    num_train_epochs=100,                      # number of training epochs, feel free to tweak
+    per_device_train_batch_size=args.batch,    # the training batch size, put it as high as your GPU memory fits
+    per_device_eval_batch_size=args.batch,     # evaluation batch size
+    gradient_accumulation_steps=1,
+    save_strategy="epoch",
+    save_steps=1,                              # save model
     load_best_model_at_end=True,               # whether to load the best model (in terms of loss) at the end of training
-    metric_for_best_model=metric_for_best_model, 
-    greater_is_better=greater_is_better,
+#     metric_for_best_model=metric_for_best_model,
+#     greater_is_better=greater_is_better,
     save_total_limit = 3,
-    eval_steps=1,      
+    eval_steps=1,
     logging_steps=50,
     report_to="none",
     save_safetensors=False,
-    max_grad_norm=1.0,          # ADDED: Enables gradient clipping
-    #warmup_steps=500
-    warmup_ratio=0.1
 )
 
-"""
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    if num_labels == 1:
-        logits = logits.flatten()
-        labels = labels.flatten()
-
-        try:
-            pearson_corr = pearsonr(logits, labels)[0].item()
-            spearman_corr = spearmanr(logits, labels)[0].item()
-            return {
-                "pearson": pearson_corr,
-                "spearmanr": spearman_corr,
-            }
-        except:
-            return {"pearson":0.0, "spearmanr":0.0}
-    else:
-        predictions = np.argmax(logits, axis=-1)
-        logits = softmax(logits, axis=1)
-        
-        f1 = f1_score(predictions, labels, average="macro")
-        auroc = roc_auc_score(labels, logits, average="macro", multi_class='ovr')
-        
-        return {"f1": f1, "auroc": auroc}
-"""
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     if num_labels == 1: # This part is for regression and is fine
