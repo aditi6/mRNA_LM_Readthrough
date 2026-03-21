@@ -20,7 +20,7 @@ parser.add_argument('--output', '-o', required=True, type=str, default="", help=
 
 parser.add_argument('--lorar',    type=int, default=32, help='Lora rank')
 parser.add_argument('--lalpha',   type=int, default=32, help='Lora alpha')
-parser.add_argument('--ldropout', type=int, default=0.5, help='Lora dropout')
+parser.add_argument('--ldropout', type=float, default=0.5, help='Lora dropout')
 parser.add_argument('--lr',       type=float, default=1e-4, help='learning rate')
 
 parser.add_argument('--head_dim', type=int, default=768, help='production head dimension')
