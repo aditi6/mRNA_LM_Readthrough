@@ -26,8 +26,8 @@ class FullModel(torch.nn.Module):
         
         # Load only the necessary models
         print("Loading models for CDS and 3'UTR...")
-        self.utr3 = BertForMaskedLM.from_pretrained("/content/drive/MyDrive/Readthrough_project/mrna_3utr_model")
-        self.cds = BertForMaskedLM.from_pretrained("/content/drive/MyDrive/Readthrough_project/codonbert")
+        self.utr3 = BertForMaskedLM.from_pretrained("/workspace/mrna_3utr_model_p2_cp99900_best")
+        self.cds = BertForMaskedLM.from_pretrained("/workspace/codonbert")
 
         # Adjust LoRA setup for the two models
         if lorar > 0:

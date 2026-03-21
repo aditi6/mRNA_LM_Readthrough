@@ -169,7 +169,7 @@ def build_readthrough_dataset():
         return all_seqs, labels
 
     # --- IMPORTANT: Change this filename to your actual CSV file ---
-    csv_path = "/content/drive/MyDrive/Readthrough_project/mRNA-LM-Readthrough/data/readthrough_data.csv"
+    csv_path = "/workspace/mRNA_LM_Readthrough/data/readthrough_data.csv"
 
     train_seqs, train_ys = load_dataset(csv_path, "train")
     valid_seqs, valid_ys = load_dataset(csv_path, "valid")
