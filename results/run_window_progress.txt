@@ -1,0 +1,14 @@
+Run: run_window
+Config: lr=1e-4, r=8, alpha=16, batch=64, dropout=0.1, head_dropout=0.1, epochs=10
+Window: last 20 CDS codons (60nt) + first 200nt 3'UTR
+Last updated: 2026-03-22 06:21 UTC
+
+epoch | eval_loss | eval_f1 | eval_auroc
+------|-----------|---------|----------
+  1.0 |    0.6984 |  0.2429 |     0.5162
+  2.0 |    0.7258 |  0.2317 |     0.5127
+  3.0 |    0.6882 |  0.4320 |     0.5113
+  4.0 |    0.6909 |  0.4826 |     0.5259
+
+Best AUROC: 0.5259 at epoch 4.0
+Baseline (non-windowed best): 0.5840
