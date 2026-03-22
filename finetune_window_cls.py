@@ -1,12 +1,28 @@
 """
-finetune_cls.py — Copy of finetune_all.py with one key change: uses FullModelCLS
-instead of FullModel.
+finetune_window_cls.py — Combines both improvements over finetune_all.py:
 
-FullModelCLS replaces mean pooling with [CLS] token pooling in forward().
-See FullModelCLS.py for the rationale.
+  1. CLS token pooling (from FullModelCLS): instead of mean pooling over all
+     tokens, uses the [CLS] token as a learned sequence-level summary. This
+     prevents the stop codon signal from being diluted by irrelevant tokens.
 
-All training settings, hyperparameters, and task handling are identical to
-finetune_all.py.
+  2. Stop-codon-centred windowing (from dataload_window): trims each sequence
+     to the last 20 CDS codons + first 200nt of 3'UTR before tokenisation,
+     so the model only sees the biologically relevant region around the stop
+     codon. See dataload_window.py for full rationale.
+
+Why combine them?
+  - Windowing alone (finetune_window.py) underperformed the baseline because
+    feeding only 20 codons to a BERT pretrained on full-length sequences is
+    out-of-distribution — the representations degrade for very short inputs.
+  - CLS pooling alone (finetune_cls.py) uses full sequences but relies on
+    the attention mechanism to route stop codon signal into [CLS]. It still
+    has to process hundreds of irrelevant tokens, which costs compute and
+    may distract the model.
+  - Together: windowing keeps inputs in a more natural length range (260nt
+    total vs. mean 3440nt full), while CLS pooling ensures the compressed
+    representation focuses on what matters. The shorter input is less
+    out-of-distribution than 60nt alone, and CLS handles any residual
+    dilution.
 """
 
 import os
@@ -18,16 +34,15 @@ from scipy.stats import pearsonr, spearmanr
 from scipy.special import softmax
 from sklearn.metrics import roc_auc_score, f1_score
 
-# --- CHANGED: import FullModel from FullModelCLS instead of FullModel ---
+# --- CHANGED: CLS pooling model ---
 from FullModelCLS import FullModel
-# ------------------------------------------------------------------------
-
-from dataload import *
+# --- CHANGED: windowed dataset loader ---
+from dataload_window import *
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 ######### Arguments Processing
-parser = argparse.ArgumentParser(description='FullModelCLS — CLS token pooling')
+parser = argparse.ArgumentParser(description='FullModelCLS — windowed + CLS token pooling')
 
 parser.add_argument('--task',   '-t', required=True, type=str, default="", help='task')
 parser.add_argument('--output', '-o', required=True, type=str, default="", help='output dir')
@@ -80,6 +95,8 @@ model = FullModel(num_labels, class_weights,
                   args.useCLIP, args.temperature, args.coefficient)
 
 ########### loading dataset and dataloader
+# NOTE: build_readthrough_dataset() here comes from dataload_window —
+# sequences are windowed before tokenisation (last 20 CDS codons + first 200nt 3'UTR).
 if args.task == "tr":
     ds_train, ds_valid, ds_test = build_dp_dataset()
 elif args.task == "halflife":
