@@ -155,15 +155,28 @@ class FullModel(torch.nn.Module):
 
     # --- ADDED: The corrected encode_string method ---
     def encode_string(self, data):
+        # CDS: truncate from the LEFT (remove beginning of long sequences).
+        # Rationale: the stop codon is at the END of the CDS and is the primary
+        # sequence feature for readthrough prediction. Default right-truncation
+        # would discard the stop codon for ~12% of sequences (CDS > 3072nt),
+        # directly destroying the most informative signal for this task.
+        self.tokenizer_cds.truncation_side = 'left'
         tok_cds = self.tokenizer_cds(
-            data['cds'], 
-            truncation=True, 
+            data['cds'],
+            truncation=True,
             padding="max_length",
             max_length=1024
         )
+
+        # 3'UTR: keep default right-truncation (truncate from the END).
+        # Rationale: the most relevant readthrough context is at the START of
+        # the 3'UTR (immediately after the stop codon), so preserving the
+        # beginning is correct. ~49% of 3'UTRs exceed 1024nt so truncation
+        # is common, but the important region is retained.
+        self.tokenizer_3utr.truncation_side = 'right'
         tok_3utr = self.tokenizer_3utr(
-            data['3utr'], 
-            truncation=True, 
+            data['3utr'],
+            truncation=True,
             padding="max_length",
             max_length=1024
         )
