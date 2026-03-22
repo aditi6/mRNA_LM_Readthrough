@@ -1,15 +1,17 @@
 # Training Progress (auto-updated)
-Last update: Sun Mar 22 04:33:23 UTC 2026
+**Last update:** 2026-03-22 04:37 UTC
 
-## Config: lr=1e-4, r=8, alpha=16, batch=16, dropout=0.1, weight_decay=0.01
+**Config:** lr=1e-4, r=8, alpha=16, batch=16, dropout=0.1, weight_decay=0.01
 
 | Epoch | AUROC | F1 | Eval Loss |
 |-------|-------|----|-----------|
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
-| epoch | eval_f1 | eval_auroc | eval_loss |
+| 1.0 | 0.5450 | 0.4208 | 0.7326 |
+| 2.0 | 0.5739 | 0.5463 | 0.6785 |
+| 3.0 | 0.5711 | 0.5376 | 0.6898 |
+| 4.0 | 0.5673 | 0.5004 | 0.6948 |
+| 5.0 | 0.5841 | 0.4640 | 0.7161 |
+| 6.0 | 0.5838 | 0.5293 | 0.6813 |
+| 7.0 | 0.5775 | 0.5505 | 0.6822 |
+| 8.0 | 0.5815 | 0.5448 | 0.6758 |
+
+**Best AUROC: 0.5841 at epoch 5.0**
