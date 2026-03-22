@@ -1,0 +1,6 @@
+Run: run_window_cls
+Config: lr=1e-4, r=8, alpha=16, batch=16, dropout=0.1, epochs=10
+Window: last 20 CDS codons (60nt) + first 200nt 3utr
+Pooling: CLS token (not mean pooling)
+
+Training not yet started.
