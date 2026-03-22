@@ -2,7 +2,7 @@ Run: run_cls
 Config: lr=5e-5, r=16, alpha=32, batch=16, dropout=0.1, epochs=25
 Sequences: full CDS + full 3'UTR (no windowing)
 Pooling: CLS token (not mean pooling)
-Last updated: 2026-03-22 10:36 UTC
+Last updated: 2026-03-22 10:45 UTC
 
 epoch | eval_loss | eval_f1 | eval_auroc
 ------|-----------|---------|----------
@@ -11,6 +11,7 @@ epoch | eval_loss | eval_f1 | eval_auroc
   3.0 |    0.6855 |  0.5151 |     0.5648
   4.0 |    0.6795 |  0.5391 |     0.5715
   5.0 |    0.7014 |  0.3705 |     0.5630
+  6.0 |    0.6790 |  0.5357 |     0.5748
 
-Best AUROC: 0.5741 at epoch 2.0
+Best AUROC: 0.5748 at epoch 6.0
 Baseline (non-windowed mean-pool): 0.5840
