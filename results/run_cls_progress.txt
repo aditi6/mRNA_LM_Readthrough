@@ -31,7 +31,6 @@ epoch | eval_loss | eval_f1 | eval_auroc
  23.0 |    0.7015 |  0.5412 |     0.5528
  24.0 |    0.7009 |  0.5401 |     0.5525
  25.0 |    0.7005 |  0.5423 |     0.5527
- 25.0 |    0.6790 |  0.5357 |     0.5748
 
 Best AUROC: 0.5748 at epoch 6.0
 Baseline (non-windowed mean-pool): 0.5840
