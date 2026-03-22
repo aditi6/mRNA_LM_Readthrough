@@ -1,7 +1,7 @@
 Run: run_window
 Config: lr=1e-4, r=8, alpha=16, batch=64, dropout=0.1, epochs=10
 Window: last 20 CDS codons (60nt) + first 200nt 3utr
-Last updated: 2026-03-22 06:26 UTC
+Last updated: 2026-03-22 06:28 UTC
 
 epoch | eval_loss | eval_f1 | eval_auroc
 ------|-----------|---------|----------
