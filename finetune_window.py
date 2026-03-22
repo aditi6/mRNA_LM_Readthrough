@@ -56,6 +56,7 @@ parser.add_argument('--batch',  '-b', type=int, default=64, help='batch size')
 parser.add_argument('--useCLIP',     '-clip',  type=bool,  default=False, help='use CLIP')
 parser.add_argument('--temperature', '-temp',  type=float, default=0.07,  help='temperature')
 parser.add_argument('--coefficient', '-coeff', type=float, default=0.2,   help='coefficient')
+parser.add_argument('--epochs',      '-e',     type=int,   default=10,    help='number of training epochs')
 
 args = parser.parse_args()
 
@@ -117,7 +118,7 @@ training_args = TrainingArguments(
     output_dir=args.output,
     eval_strategy="epoch",
     overwrite_output_dir=True,
-    num_train_epochs=100,
+    num_train_epochs=args.epochs,
     per_device_train_batch_size=args.batch,
     per_device_eval_batch_size=args.batch,
     gradient_accumulation_steps=1,
