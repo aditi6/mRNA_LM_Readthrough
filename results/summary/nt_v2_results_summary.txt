@@ -1,0 +1,33 @@
+Run: NT-v2-500M frozen embeddings + XGBoost
+Model: InstaDeepAI/nucleotide-transformer-v2-500m-multi-species (500M params)
+Features: CLS token embedding (1024d) from frozen NT-v2
+Classifier: XGBoost (default params)
+Date: 2026-04-01
+
+=== WINDOWED (last 60nt CDS + first 200nt 3'UTR = 260nt) ===
+
+5-fold CV mean AUROC: 0.5404 +/- 0.0199
+val_auroc:  0.5685
+test_auroc: 0.5284
+test_f1:    0.5160
+
+=== FULL SEQUENCE (complete CDS + 3'UTR concatenated) ===
+
+5-fold CV mean AUROC: 0.6036 +/- 0.0065
+val_auroc:  0.5934
+test_auroc: 0.5826
+test_f1:    0.5497
+
+=== COMPARISON (all methods, test AUROC) ===
+CodonBERT+3'UTRBERT tuned XGBoost:    AUROC = 0.6905  ← best overall
+CodonBERT+3'UTRBERT default XGBoost:  AUROC = 0.6743
+CodonBERT+3'UTRBERT CLS XGBoost:      AUROC = 0.6740
+Fine-tuned BERT mean pool (run_fixed): AUROC = 0.5840
+NT-v2-500M full seq XGBoost:           AUROC = 0.5826  ← this run
+CodonBERT+3'UTRBERT windowed XGBoost:  AUROC = 0.5774
+Fine-tuned BERT CLS 25ep r=16:         AUROC = 0.5614
+NT-v2-500M windowed XGBoost:           AUROC = 0.5284  ← this run
+
+Note: Domain-specific models (CodonBERT + 3'UTR BERT) significantly outperform
+the general-purpose NT-v2-500M. The two-model split also provides richer features
+(1536d vs 1024d) with separate CDS and 3'UTR embedding spaces.
