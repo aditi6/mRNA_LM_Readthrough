@@ -1,0 +1,36 @@
+Run: xgb_window_embeddings
+Config: XGBoost on frozen pretrained BERT embeddings with stop-codon windowing
+Sequences: last 20 CDS codons (60nt) + first 200nt 3'UTR
+Features: mean-pooled CDS embedding (768d) + mean-pooled 3'UTR embedding (768d) = 1536d
+Classifier: XGBoost (n_estimators=2000, lr=0.05, max_depth=6, early_stopping=50)
+Date: 2026-03-31
+
+--- 5-FOLD CV (train set) ---
+fold | AUROC  | F1
+-----|--------|-------
+  1  | 0.6026 | 0.5538
+  2  | 0.6318 | 0.5789
+  3  | 0.6258 | 0.5878
+  4  | 0.6126 | 0.5651
+  5  | 0.6073 | 0.5833
+mean | 0.6160 | 0.5738
+ std | 0.0111 | 0.0126
+
+--- FINAL RESULTS ---
+val_auroc:  0.6054
+val_f1:     0.5576
+test_auroc: 0.5774
+test_f1:    0.5517
+
+--- COMPARISON (all runs, test AUROC) ---
+XGBoost full seq frozen embeddings:    AUROC = 0.6743  ← best
+Fine-tuned BERT mean pool (run_fixed): AUROC = 0.5840
+XGBoost windowed frozen embeddings:    AUROC = 0.5774  ← this run
+Fine-tuned BERT CLS 25ep r=16:         AUROC = 0.5614
+Fine-tuned BERT windowed mean pool:    AUROC = ~0.514
+
+Note: windowing hurts frozen embeddings for the same reason it hurt fine-tuning —
+the pretrained BERT models were trained on full sequences, so a 20-codon CDS
+window is out-of-distribution and produces weaker representations.
+Full sequence embeddings give BERT more context and XGBoost finds the signal
+in the resulting 1536-dim space.
