@@ -1,0 +1,31 @@
+Run: xgb_tuned
+Config: XGBoost on frozen pretrained BERT embeddings (mean pool, full seq) — Optuna tuned
+Features: mean-pooled CDS (768d) + 3'UTR (768d) = 1536d
+Search: 100 Optuna trials, 5-fold CV each
+Date: 2026-04-01
+
+--- BEST PARAMS ---
+n_estimators:    2500
+learning_rate:   0.02004
+max_depth:       10
+min_child_weight: 9
+subsample:       0.6714
+colsample_bytree: 0.4670
+gamma:           0.4495
+reg_alpha:       0.0403
+reg_lambda:      1.7008
+
+--- RESULTS ---
+best_cv_auroc: 0.7035
+val_auroc:     0.7129
+val_f1:        0.6375
+test_auroc:    0.6905
+test_f1:       0.6238
+
+--- COMPARISON (all runs, test AUROC) ---
+XGBoost tuned (frozen embeddings):     AUROC = 0.6905  ← this run (best overall)
+XGBoost default (frozen embeddings):   AUROC = 0.6743
+XGBoost CLS (frozen embeddings):       AUROC = 0.6740
+Fine-tuned BERT mean pool (run_fixed): AUROC = 0.5840
+XGBoost windowed (frozen embeddings):  AUROC = 0.5774
+Fine-tuned BERT CLS 25ep r=16:         AUROC = 0.5614
