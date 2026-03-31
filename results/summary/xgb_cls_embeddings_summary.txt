@@ -1,0 +1,34 @@
+Run: xgb_cls_embeddings
+Config: XGBoost on frozen pretrained BERT CLS token embeddings (no fine-tuning)
+Sequences: full CDS + full 3'UTR (no windowing)
+Features: CLS token CDS embedding (768d) + CLS token 3'UTR embedding (768d) = 1536d
+Classifier: XGBoost (n_estimators=2000, lr=0.05, max_depth=6, early_stopping=50)
+Date: 2026-03-31
+
+--- 5-FOLD CV (train set) ---
+fold | AUROC  | F1
+-----|--------|-------
+  1  | 0.6899 | 0.6239
+  2  | 0.6819 | 0.6308
+  3  | 0.6855 | 0.6060
+  4  | 0.6900 | 0.6153
+  5  | 0.6953 | 0.6314
+mean | 0.6885 | 0.6215
+ std | 0.0045 | 0.0097
+
+--- FINAL RESULTS ---
+val_auroc:  0.6793
+val_f1:     0.6081
+test_auroc: 0.6740
+test_f1:    0.6049
+
+--- COMPARISON (all runs, test AUROC) ---
+XGBoost mean pool frozen embeddings:   AUROC = 0.6743  ← best
+XGBoost CLS frozen embeddings:         AUROC = 0.6740  ← this run (effectively identical)
+Fine-tuned BERT mean pool (run_fixed): AUROC = 0.5840
+XGBoost windowed frozen embeddings:    AUROC = 0.5774
+Fine-tuned BERT CLS 25ep r=16:         AUROC = 0.5614
+
+Note: mean pool and CLS give virtually identical results (delta < 0.001).
+The pretrained BERT was not trained with a classification objective so its
+CLS token is not specifically more informative than mean pooling.
