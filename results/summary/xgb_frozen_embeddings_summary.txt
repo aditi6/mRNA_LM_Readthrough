@@ -1,0 +1,30 @@
+Run: xgb_frozen_embeddings
+Config: XGBoost on frozen pretrained BERT embeddings (no fine-tuning)
+Sequences: full CDS + full 3'UTR (no windowing)
+Features: mean-pooled CDS embedding (768d) + mean-pooled 3'UTR embedding (768d) = 1536d
+Classifier: XGBoost (n_estimators=2000, lr=0.05, max_depth=6, early_stopping=50)
+Date: 2026-03-31
+
+--- 5-FOLD CV (train set) ---
+fold | AUROC  | F1
+-----|--------|-------
+  1  | 0.7158 | 0.6466
+  2  | 0.6858 | 0.6173
+  3  | 0.6928 | 0.6249
+  4  | 0.7002 | 0.6283
+  5  | 0.6858 | 0.6219
+mean | 0.6961 | 0.6278
+ std | 0.0112 | 0.0101
+
+--- FINAL RESULTS ---
+val_auroc:  0.6876
+val_f1:     0.6134
+test_auroc: 0.6743
+test_f1:    0.5956
+
+--- COMPARISON ---
+XGBoost frozen embeddings (test):      AUROC = 0.6743  ← this run
+Fine-tuned BERT mean pool (run_fixed):  AUROC = 0.5840
+Fine-tuned BERT CLS 25ep r=16:          AUROC = 0.5614
+
+Improvement over best fine-tuning: +0.090 AUROC
