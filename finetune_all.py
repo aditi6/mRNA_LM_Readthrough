@@ -94,13 +94,14 @@ training_args = TrainingArguments(
     save_strategy="epoch",
     save_steps=1,                              # save model
     load_best_model_at_end=True,               # whether to load the best model (in terms of loss) at the end of training
-#     metric_for_best_model=metric_for_best_model,
-#     greater_is_better=greater_is_better,
+    metric_for_best_model=metric_for_best_model,
+    greater_is_better=greater_is_better,
     save_total_limit = 3,
     eval_steps=1,
     logging_steps=50,
     lr_scheduler_type="cosine",
     warmup_ratio=0.1,
+    weight_decay=0.01,
     report_to="none",
     save_safetensors=False,
 )
