@@ -1,0 +1,10 @@
+
+=== NT-v2-500M (frozen CLS) — NTC Toledano — 1024d embeddings, 18472 sequences ===
+CV: 5-fold stratified per drug
+Drug               N  AUROC >1.0  AUROC median  % pos@1.0
+----------------------------------------------------------
+Clitocine      18189      0.5745        0.5894      31.1%
+DAP            18095      0.6456        0.6639      45.2%
+G418           18077      0.5690        0.5922      17.8%
+SJ6986         18142      0.6051        0.6175      70.5%
+SRI            18126      0.6137        0.6314      36.9%
