@@ -1,0 +1,10 @@
+
+=== mRNA-LM (CodonBERT + 3utrBERT) — NTC Toledano — 1536d embeddings, 18472 sequences ===
+CV: 5-fold stratified per drug
+Drug               N  AUROC >1.0  AUROC median  % pos@1.0
+----------------------------------------------------------
+Clitocine      18050      0.5017        0.5032      30.6%
+DAP            18049      0.5040        0.5026      45.0%
+G418           17995      0.5024        0.5022      17.4%
+SJ6986         18085      0.5056        0.5031      70.4%
+SRI            17944      0.5028        0.5013      36.3%
