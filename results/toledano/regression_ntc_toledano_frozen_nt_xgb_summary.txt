@@ -1,0 +1,61 @@
+NTC Toledano — Frozen NT-v2-500M Embeddings + ML Regression
+Embeddings: 1024d CLS token, NT-v2-500M (InstaDeepAI/nucleotide-transformer-v2-500m-multi-species)
+Dataset: 18,472 sequences, 5 drugs (Clitocine, DAP, G418, SJ6986, SRI)
+CV: 5-fold KFold, seed=42
+Optuna: 50 trials, TPE sampler, optimize Spearman r
+GPU: H100 80GB HBM3
+AUROC: computed from median split of regression predictions (not a classifier)
+
+--- Ridge (alpha=1.0) ---
+Drug            R2   Pearson  Spearman    AUROC     RMSE
+------------------------------------------------------------
+Clitocine  -0.0198   0.1513    0.1653   0.5771   0.4817
+DAP         0.0594   0.2862    0.2543   0.6747   0.7530
+G418       -0.0050   0.1766    0.1851   0.5879   0.5700
+SJ6986      0.0415   0.2594    0.2508   0.6187   0.8699
+SRI        -0.0029   0.1835    0.2156   0.6088   0.6738
+
+--- XGBoost (default) ---
+n_estimators=1000, lr=0.05, max_depth=6, subsample=0.8, colsample_bytree=0.8, device=cuda
+Drug            R2   Pearson  Spearman    AUROC     RMSE
+------------------------------------------------------------
+Clitocine  -0.0008   0.1449    0.1335   0.5658   0.4772
+DAP         0.0674   0.2707    0.2206   0.6535   0.7497
+G418        0.0024   0.1623    0.1507   0.5743   0.5679
+SJ6986      0.0562   0.2561    0.2456   0.6165   0.8633
+SRI         0.0197   0.1954    0.2139   0.6117   0.6661
+
+--- LightGBM (default) ---
+n_estimators=1000, lr=0.05, max_depth=6, subsample=0.8, colsample_bytree=0.8
+Drug            R2   Pearson  Spearman    AUROC     RMSE
+------------------------------------------------------------
+Clitocine   0.0022   0.1460    0.1386   0.5656   0.4764
+DAP         0.0650   0.2673    0.2195   0.6540   0.7507
+G418        0.0043   0.1618    0.1570   0.5756   0.5674
+SJ6986      0.0579   0.2586    0.2522   0.6212   0.8625
+SRI         0.0151   0.1864    0.2080   0.6072   0.6677
+
+--- XGBoost (Optuna-tuned, 50 trials) ---
+Tuned per drug; best params listed below
+Drug            R2   Pearson  Spearman    AUROC     RMSE
+------------------------------------------------------------
+Clitocine   0.0237   0.1630    0.1549   0.5752   0.4713
+DAP         0.0878   0.2965    0.2406   0.6702   0.7415
+G418        0.0372   0.1947    0.1898   0.5914   0.5579
+SJ6986      0.0821   0.2873    0.2781   0.6329   0.8513
+SRI         0.0449   0.2132    0.2543   0.6275   0.6575
+
+Best Optuna hyperparameters per drug:
+Clitocine: n_est=800,  lr=0.0169, depth=8, mcw=6, sub=0.551, col=0.767, gamma=0.131, alpha=3.615, lambda=0.141
+DAP:       n_est=1600, lr=0.0150, depth=6, mcw=6, sub=0.647, col=0.624, gamma=0.814, alpha=3.886, lambda=0.030
+G418:      n_est=1100, lr=0.0124, depth=7, mcw=2, sub=0.908, col=0.412, gamma=0.633, alpha=5.094, lambda=0.001
+SJ6986:    n_est=1000, lr=0.0134, depth=8, mcw=8, sub=0.559, col=0.832, gamma=0.453, alpha=4.465, lambda=0.123
+SRI:       n_est=1000, lr=0.0117, depth=4, mcw=9, sub=0.927, col=0.924, gamma=1.729, alpha=1.373, lambda=9.981
+
+Notes:
+- R2 values are low (0.02-0.09), consistent with task difficulty on 132nt windowed sequences
+- DAP and SJ6986 show the strongest signal across all models
+- Ridge is competitive with or better than XGBoost on Pearson/AUROC for most drugs,
+  suggesting the signal is largely linear in embedding space
+- AUROC here is regression-derived (median split); for direct classification AUROC see
+  auroc_ntc_toledano_nt.log (classifier: DAP=0.646/0.664, SRI=0.614/0.631, etc.)
