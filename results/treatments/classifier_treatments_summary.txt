@@ -1,0 +1,38 @@
+Treatment Dataset — Pan-Drug CNN+Transformer Classifier with Drug Conditioning
+Dataset: 79,751 rows, 9 drugs, full cDNA sequences from Ensembl REST API
+Context: ±45 nt around stop codon (93 nt window), extracted at training time
+Architecture: nt embedding (32) + drug embedding (32, injected at every position)
+             → 2x Conv1D (64ch, k=5/3, GELU, LN, dropout=0.3)
+             → 2x pre-norm Transformer (d=64, h=4, ffn=128, local attn band=7)
+             → drug-conditioned cross-attn query pool → MLP (64→32→1)
+Training: BCEWithLogitsLoss, per-sample weights from drug-specific class imbalance
+          WeightedRandomSampler, AdamW lr=5e-4, wd=1e-3, batch=1024, max_epochs=100
+          Early stopping on val AUPRC (patience=20), ReduceLROnPlateau
+CV: 5-fold StratifiedKFold (stratified on drug×label), per-drug threshold tuning
+GPU: H100 80GB HBM3
+
+── OVERALL (mean ± std across 5 folds) ──
+AUROC=0.6127 ± 0.0059
+AUPRC=0.4224 ± 0.0067
+F1   =0.5253 ± 0.0017
+
+── PER DRUG (mean across 5 folds) ──
+Drug              AUROC   AUPRC    F1    pos/n    Prevalence
+------------------------------------------------------------
+G418_2000         0.710   0.830   0.800  1179/1785   66.0%
+G418_500          0.732   0.774   0.730   973/1784   54.6%
+G418_500_10min    0.721   0.745   0.704   912/1764   51.7%
+amik              0.745   0.422   0.461   317/1788   17.8%
+genta             0.750   0.565   0.562   497/1761   28.3%
+neo               0.747   0.554   0.558   498/1781   28.0%
+parom             0.742   0.591   0.585   562/1777   31.6%
+tobra             0.738   0.393   0.453   310/1746   17.8%
+untr              0.741   0.244   0.341   171/1761    9.7%
+
+── KEY OBSERVATIONS ─────────────────────────────────────────────────────────
+- AUROC consistent across all drugs (0.71–0.75): drug conditioning working
+- AUPRC tracks prevalence: G418_2000 (66% pos) = 0.83, untr (9.7% pos) = 0.24
+- Low variance across folds (AUROC std=0.006): stable training
+- All folds hit epoch 100 without early stopping — model plateaus rather than
+  overfits; increasing epochs unlikely to help without architecture changes
+- Next steps: try focal loss, larger context, or additional sequence features
