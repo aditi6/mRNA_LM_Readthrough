@@ -1,0 +1,44 @@
+NTC Toledano — Context Window Sweep: CNN+Transformer v1 vs v2
+5-fold KFold CV, per-drug regression, H100 80GB HBM3
+
+=== v1 Architecture (baseline) ===
+nt embedding → 2x Conv1D → 2x Transformer (full attention) → attention pool → MLP
+dropout=0.2, weight_decay=1e-4, batch=512, Huber loss
+
+=== v2 Architecture (improved) ===
+(nt + stop-codon-relative pos) embedding → 2x Conv1D
+→ 2x Transformer (LOCAL attention, band=7) → stop-codon cross-attn pool → MLP
+dropout scaled with context (0.2→0.4), weight_decay=1e-3, batch=512, Huber loss
+
+── V1 RESULTS (R² / Spearman) ──────────────────────────────────────────────
+Context    Clitocine        DAP              G418             SJ6986           SRI
+±10nt   0.607 / 0.818   0.801 / 0.828   0.492 / 0.724   0.437 / 0.685   0.592 / 0.766
+±15nt   ~0.51/ ~0.76   0.697 / 0.790   0.421 / 0.663   0.400 / 0.643   0.524 / 0.713
+±20nt   0.479 / 0.728   0.635 / 0.760   0.380 / 0.630   0.371 / 0.624   0.462 / 0.674
+±30nt   0.392 / 0.665   0.529 / 0.698   0.315 / 0.574   0.329 / 0.568   0.377 / 0.612
+±45nt   0.310 / 0.589   0.431 / 0.627   0.256 / 0.509   0.289 / 0.527   0.306 / 0.544
+±63nt   0.250 / 0.531   0.356 / 0.564   0.207 / 0.452   0.260 / 0.495   0.242 / 0.505
+Trend: monotonic decline — severe overfitting with larger context
+
+── V2 RESULTS (R² / Spearman) ──────────────────────────────────────────────
+Context    Clitocine        DAP              G418             SJ6986           SRI
+±10nt   0.717 / 0.870   0.889 / 0.863   0.605 / 0.807   0.536 / 0.750   0.752 / 0.848
+±15nt   0.717 / 0.871   0.889 / 0.864   0.616 / 0.809   0.540 / 0.751   0.753 / 0.850
+±20nt   0.717 / 0.872   0.890 / 0.867   0.624 / 0.817   0.548 / 0.760   0.762 / 0.857
+Trend: stable/improving — overfitting eliminated
+
+── V1 vs V2 IMPROVEMENT at ±10nt ───────────────────────────────────────────
+Drug        R² gain    Spearman gain
+Clitocine   +0.110      +0.052
+DAP         +0.088      +0.035
+G418        +0.113      +0.083
+SJ6986      +0.099      +0.065
+SRI         +0.160      +0.082
+
+── KEY TAKEAWAYS ────────────────────────────────────────────────────────────
+1. v1 overfits heavily beyond ±10nt; v2 eliminates this with local attention +
+   stop-codon query pooling + distance positional encoding + scaled dropout.
+2. v2 ±20nt is the best overall: G418 R²=0.624, SRI R²=0.762, DAP R²=0.890.
+3. DAP is the most predictable drug (R²=0.89); SJ6986 the hardest (R²=0.55).
+4. Next: test v2 on additional context windows (±25, ±30) to find the true
+   optimum, and/or run smaller contexts (±6, ±8) with v2.
