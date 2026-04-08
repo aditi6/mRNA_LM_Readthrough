@@ -1,0 +1,32 @@
+NTC Toledano — CNN + Transformer Hybrid (end-to-end trained)
+Model: learned nt embedding (dim=32) → 2x Conv1D (64ch, k=5,3) → 2x Transformer (d=64, h=4, ffn=128) → attention pool → MLP (64→32→1)
+Input: ±10 nt window around stop codon = 23 nt total
+Training: AdamW lr=1e-3, wd=1e-4, Huber loss, batch=512, early stopping patience=20, grad clip=1.0
+CV: 5-fold KFold, seed=42, target standardised per fold (train only)
+GPU: H100 80GB HBM3
+Runtime: ~15 min total for all 5 drugs
+
+Results (mean ± std across 5 folds, original scale):
+Drug            R²              Pearson         Spearman        RMSE
+------------------------------------------------------------------------
+Clitocine   0.6066 ± 0.0154   0.7834 ± 0.0098  0.8175 ± 0.0053  0.2864 ± 0.0073
+DAP         0.8005 ± 0.0042   0.8965 ± 0.0022  0.8277 ± 0.0038  0.3456 ± 0.0031
+G418        0.4921 ± 0.0215   0.7121 ± 0.0137  0.7243 ± 0.0037  0.4019 ± 0.0083
+SJ6986      0.4369 ± 0.0350   0.6707 ± 0.0218  0.6852 ± 0.0133  0.6795 ± 0.0182
+SRI         0.5920 ± 0.0101   0.7787 ± 0.0076  0.7657 ± 0.0070  0.4355 ± 0.0098
+
+Comparison to frozen NT-v2-500M + XGBoost Optuna (same dataset, same CV):
+Drug        Spearman (frozen)  Spearman (this)   R² (frozen)  R² (this)
+------------------------------------------------------------------------
+Clitocine       0.155              0.818           0.024        0.607
+DAP             0.241              0.828           0.088        0.801
+G418            0.190              0.724           0.037        0.492
+SJ6986          0.278              0.685           0.082        0.437
+SRI             0.254              0.766           0.045        0.592
+
+Key takeaways:
+- End-to-end training on 23 nt window massively outperforms frozen 500M-param NT-v2-500M embeddings
+- DAP is most predictable (R²=0.80): local sequence context around stop codon is highly informative
+- SJ6986 is hardest (R²=0.44), suggesting additional factors beyond local sequence
+- Very low variance across folds (e.g. DAP ±0.004), indicating stable training
+- Next steps: try larger context windows (±20, ±63 nt) to see if more context helps
