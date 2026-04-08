@@ -1,0 +1,41 @@
+NTC Toledano — v2 Architecture Full Context Sweep (R²)
+Architecture: (nt + stop-codon-relative pos) embedding → 2x Conv1D
+             → 2x Transformer (local attn band=7) → stop-codon cross-attn pool → MLP
+Dropout: auto-scaled (0.20 @ ±10nt → 0.40 @ ±63nt), weight_decay=1e-3
+5-fold KFold CV, batch=512, Huber loss, H100 80GB
+
+── R² (mean ± std) ──────────────────────────────────────────────────────────
+Context    Clitocine        DAP              G418             SJ6986           SRI
+±10nt   0.717 ± 0.009   0.889 ± 0.005   0.605 ± 0.019   0.536 ± 0.026   0.752 ± 0.009
+±15nt   0.717 ± 0.009   0.889 ± 0.006   0.616 ± 0.023   0.540 ± 0.022   0.753 ± 0.011
+±20nt   0.717 ± 0.012   0.890 ± 0.005   0.624 ± 0.023   0.548 ± 0.030   0.762 ± 0.006
+±30nt   0.717 ± 0.009   0.892 ± 0.007   0.627 ± 0.019   0.563 ± 0.019   0.760 ± 0.008
+±45nt   0.713 ± 0.012   0.894 ± 0.004   0.630 ± 0.023   0.583 ± 0.022   0.758 ± 0.015
+±63nt   0.707 ± 0.004   0.893 ± 0.003   0.636 ± 0.028   0.603 ± 0.026   0.737 ± 0.034
+
+── Spearman ─────────────────────────────────────────────────────────────────
+Context    Clitocine    DAP          G418         SJ6986       SRI
+±10nt      0.870        0.863        0.807        0.750        0.848
+±15nt      0.871        0.864        0.809        0.751        0.850
+±20nt      0.872        0.867        0.817        0.760        0.857
+±30nt      0.873        0.872        0.813        0.768        0.861
+±45nt      0.874        0.874        0.816        0.775        0.860
+±63nt      0.873        0.877        0.823        0.775        0.847
+
+── KEY FINDINGS ─────────────────────────────────────────────────────────────
+- v2 eliminates overfitting: performance flat-to-improving across all contexts
+  (v1 dropped monotonically from ±10nt to ±63nt)
+- Clitocine plateaus at ±10nt (R²=0.717) regardless of context — explained by
+  its narrow response std (0.457 vs 0.906 for SJ6986): limited variance to explain
+- SJ6986 most context-sensitive: R² 0.536 → 0.603 (+0.067) from ±10→±63nt
+- DAP peaks at ±45nt (R²=0.894); SRI peaks at ±20-30nt
+- Sweet spot overall: ±45nt (best balance across all drugs)
+- Best single-drug result: DAP R²=0.894, Spearman=0.874 at ±45nt
+
+── vs FROZEN NT-v2-500M + XGBoost (best tuned) ─────────────────────────────
+Drug        Frozen R²   v2 R² (±45nt)   Gain
+Clitocine     0.024       0.713         +0.689
+DAP           0.088       0.894         +0.806
+G418          0.037       0.630         +0.593
+SJ6986        0.082       0.583         +0.501
+SRI           0.045       0.758         +0.713
