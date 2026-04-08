@@ -195,7 +195,7 @@ def predict(model, loader, scaler, device):
     return y_true, y_pred
 
 
-def train_fold(model, train_loader, val_loader, scaler, args, device):
+def train_fold(model, train_loader, val_loader, scaler, args, device, ckpt_path=None):
     criterion = nn.HuberLoss() if args.loss == 'huber' else nn.MSELoss()
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -204,7 +204,7 @@ def train_fold(model, train_loader, val_loader, scaler, args, device):
 
     best_r2, best_state, no_improve = -float('inf'), None, 0
 
-    for _ in range(args.epochs):
+    for epoch in range(args.epochs):
         train_epoch(model, train_loader, optimizer, criterion, device)
         y_true, y_pred = predict(model, val_loader, scaler, device)
         val_r2 = float(r2_score(y_true, y_pred))
@@ -212,6 +212,14 @@ def train_fold(model, train_loader, val_loader, scaler, args, device):
         if val_r2 > best_r2:
             best_r2 = val_r2
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            if ckpt_path is not None:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_state,
+                    'val_r2': best_r2,
+                    'scaler_mean': scaler.mean_.tolist(),
+                    'scaler_scale': scaler.scale_.tolist(),
+                }, ckpt_path)
             no_improve = 0
         else:
             no_improve += 1
@@ -223,7 +231,7 @@ def train_fold(model, train_loader, val_loader, scaler, args, device):
 
 
 # ── cross-validation ──────────────────────────────────────────────────────────
-def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device):
+def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug'):
     dropout = args.dropout if args.dropout is not None else default_dropout(context_nt)
     print(f'  dropout={dropout:.2f}  weight_decay={args.weight_decay}  attn_window={args.attn_window}')
 
@@ -254,7 +262,8 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device):
         model = ReadthroughModelV2(
             seq_len=seq_len, context_nt=context_nt, dropout=dropout,
             attn_window=args.attn_window).to(device)
-        y_true, y_pred = train_fold(model, train_loader, val_loader, sc, args, device)
+        ckpt_path = os.path.join(args.out_dir, f'checkpoint_{drug}_fold{fold}.pt')
+        y_true, y_pred = train_fold(model, train_loader, val_loader, sc, args, device, ckpt_path=ckpt_path)
         m = eval_metrics(y_true, y_pred)
         fold_metrics.append(m)
         print(f'    fold {fold}: R²={m["r2"]:.4f}  Pearson={m["pearson"]:.4f}'
@@ -336,7 +345,7 @@ def main():
         valid = ~np.isnan(y_raw)
         mean_m, std_m = run_cv(
             X_tok[valid], X_pos[valid], y_raw[valid],
-            seq_len, args.context_nt, args, device)
+            seq_len, args.context_nt, args, device, drug=drug)
 
         print(f'  MEAN  R²={mean_m["r2"]:.4f}±{std_m["r2"]:.4f}'
               f'  Pearson={mean_m["pearson"]:.4f}±{std_m["pearson"]:.4f}'

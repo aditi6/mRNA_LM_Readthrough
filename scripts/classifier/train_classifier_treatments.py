@@ -334,6 +334,7 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
                     logits, labels, weight=sw)
 
         best_auprc, best_state, no_improve = -1.0, None, 0
+        ckpt_path = os.path.join(args.out_dir, f'checkpoint_fold{fold}.pt')
 
         for epoch in range(1, args.epochs + 1):
             train_epoch(model, train_loader, optimizer, criterion, device)
@@ -346,6 +347,13 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
             if val_auprc > best_auprc:
                 best_auprc  = val_auprc
                 best_state  = {k: v.clone() for k, v in model.state_dict().items()}
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_state,
+                    'val_auprc': best_auprc,
+                    'drug_names': drug_names,
+                    'args': vars(args),
+                }, ckpt_path)
                 no_improve  = 0
             else:
                 no_improve += 1
