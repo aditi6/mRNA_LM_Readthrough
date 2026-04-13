@@ -1,0 +1,150 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         ReadthroughModelV2                                   ║
+║        mRNA Stop-Codon Readthrough  —  CNN + Transformer (regression)        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+INPUT
+─────
+  Nucleotide sequence centred on stop codon
+  Window = 2·context_nt + 3  tokens  (e.g. ±10 nt  →  23 tokens)
+  Alphabet: {A=0, C=1, G=2, T/U=3, N=4}
+
+  Shape: (Batch, L)  int64
+  ┌───────────────────────────────────────────────────────┐
+  │  … CDS upstream … │ stop codon (3 nt) │ … 3'UTR … │
+  │   pos: -ctx .. -1 │      0   1   2    │ 3 .. ctx  │
+  └───────────────────────────────────────────────────────┘
+    Stop-codon-relative positions are passed alongside tokens.
+
+
+STAGE 1 — EMBEDDING  (B, L) → (B, L, 32)
+──────────────────────────────────────────
+  ┌──────────────────────────┐   ┌───────────────────────────────────────┐
+  │  NT Embedding            │   │  Positional Embedding                 │
+  │  nn.Embedding(5, 32)     │   │  nn.Embedding(pos_vocab, 32)          │
+  │  pad_idx = N(4)          │   │  index = position + context_nt        │
+  │                          │   │  (maps −ctx..+ctx+2  →  0..pos_vocab) │
+  └──────────────────────────┘   └───────────────────────────────────────┘
+                    │                          │
+                    └───────────(+)────────────┘
+                                │
+                         (B, L, 32)   ← element-wise sum
+
+
+STAGE 2 — LOCAL FEATURE EXTRACTION  (B, L, 32) → (B, L, 64)
+──────────────────────────────────────────────────────────────
+  ConvBlock 1                              ConvBlock 2
+  ┌─────────────────────────────┐          ┌─────────────────────────────┐
+  │ Conv1D(32→64, k=5, same)    │          │ Conv1D(64→64, k=3, same)    │
+  │ GELU activation             │  ──────► │ GELU activation             │
+  │ Dropout(p)                  │          │ Dropout(p)                  │
+  │ LayerNorm(64)               │          │ LayerNorm(64)               │
+  └─────────────────────────────┘          └─────────────────────────────┘
+  (B, 64, L)  [channel-first]              (B, 64, L) → permute → (B, L, 64)
+
+  Purpose: capture local k-mer patterns (trinucleotides, codons, splice signals).
+  k=5 then k=3 gives an effective receptive field of 7 nt with fewer params.
+
+
+STAGE 3 — CONTEXTUAL ENCODING  (B, L, 64) → (B, L, 64)
+─────────────────────────────────────────────────────────
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  TransformerEncoderLayer × 2                                     │
+  │                                                                  │
+  │  Pre-LayerNorm  →  Multi-Head Self-Attention (4 heads, d=64)     │
+  │                      + LOCAL ATTENTION MASK                      │
+  │                        each token attends only to ±3 neighbours  │
+  │                        (band of 7; implemented as bool mask)     │
+  │                   →  residual add                                │
+  │                   →  LayerNorm  →  FFN(64 → 128 → 64, GELU)     │
+  │                   →  Dropout(p)  →  residual add                 │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Why local attention?
+    Global attention on longer windows caused overfitting in v1.
+    Restricting each token to its 7-token neighbourhood forces the model
+    to learn local motifs before aggregating globally in the pooling step.
+
+  Attention mask diagram (band = 7, ±3):
+    Position:  0  1  2  3  4  5  6  7  8 ...
+    Pos 3 can attend to: [0, 1, 2, 3, 4, 5, 6]  (3−3=0 .. 3+3=6)
+    Pos 7 can attend to: [4, 5, 6, 7, 8, 9, 10]
+    ■ = attend  · = blocked
+    [ ■ ■ ■ ■ · · · · · ]   row 0
+    [ ■ ■ ■ ■ ■ · · · · ]   row 1
+    [ ■ ■ ■ ■ ■ ■ · · · ]   row 2
+    [ ■ ■ ■ ■ ■ ■ ■ · · ]   row 3
+    [ · ■ ■ ■ ■ ■ ■ ■ · ]   row 4
+    [ · · ■ ■ ■ ■ ■ ■ ■ ]   row 5
+    ...
+
+
+STAGE 4 — STOP-CODON QUERY POOLING  (B, L, 64) → (B, 64)
+───────────────────────────────────────────────────────────
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  StopCodonQueryPool                                              │
+  │                                                                  │
+  │  Learned query  q  ∈  R^(1, 1, 64)  — single trainable vector   │
+  │  Expanded to    q  ∈  R^(B, 1, 64)                              │
+  │                                                                  │
+  │  Cross-Attention:  Q = q,  K = V = transformer output           │
+  │                    MultiheadAttention(4 heads, no dropout)       │
+  │                    output: (B, 1, 64)                            │
+  │                                                                  │
+  │  LayerNorm  →  squeeze  →  (B, 64)                               │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Why a learned query?
+    Standard attention pooling uses the sequence itself to compute importance
+    weights — the model must rediscover "the stop codon is the key position"
+    from scratch.  A fixed learned query gives the model an explicit inductive
+    bias: "summarise this sequence from the stop-codon's perspective."
+    The query learns what features matter for readthrough during training.
+
+
+STAGE 5 — REGRESSION HEAD  (B, 64) → (B,)
+────────────────────────────────────────────
+  Linear(64 → 32)  →  GELU  →  Linear(32 → 1)  →  squeeze
+
+  Output: single scalar per sample (scaled readthrough efficiency)
+  Trained with HuberLoss on StandardScaler-normalised targets.
+
+
+OUTPUT
+──────
+  Predicted readthrough efficiency  (scalar, inverse-transformed to original scale)
+
+
+══════════════════════════════════════════════════════════════════════════════
+HYPERPARAMETERS (defaults)
+══════════════════════════════════════════════════════════════════════════════
+  emb_dim          32        NT + position embedding size
+  conv_ch          64        channels after ConvBlock 1
+  d_model          64        model width throughout transformer + pooling
+  nhead             4        attention heads
+  ffn_dim         128        transformer FFN hidden size
+  num_layers        2        transformer encoder layers
+  attn_window       7        local attention band (±3 neighbours)
+  dropout       auto        0.2 at ±10 nt, scales to 0.4 at ±63 nt
+                            formula: 0.2 + (context_nt − 10) × (0.2/53)
+  weight_decay    1e-3       AdamW regularisation
+  lr              1e-3       initial learning rate (ReduceLROnPlateau ×0.5)
+  loss            Huber      robust to outliers vs MSE
+  batch_size      512
+  epochs          200        with early stopping (patience=20)
+  cv_folds          5        KFold cross-validation
+
+
+══════════════════════════════════════════════════════════════════════════════
+PARAMETER COUNT (approximate, ±10 context / L=23)
+══════════════════════════════════════════════════════════════════════════════
+  NT embedding          5 × 32         =     160
+  Pos embedding        28 × 32         =     896
+  ConvBlock 1    32×64×5 + norms       =  10,432
+  ConvBlock 2    64×64×3 + norms       =  12,480
+  Transformer ×2 (attn + FFN + norms)  =  66,944
+  StopCodon query pool                 =   8,256
+  MLP head        64×32 + 32 + 32×1   =   2,113
+                                        ────────
+  Total                               ≈ 101,281 parameters
