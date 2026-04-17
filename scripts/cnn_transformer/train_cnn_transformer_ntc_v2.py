@@ -46,15 +46,22 @@ VOCAB_SIZE = 5
 
 
 # ── sequence utilities ────────────────────────────────────────────────────────
-def extract_window(seq: str, context_nt: int):
+def extract_window(seq: str, context_nt: int = None,
+                   upstream_nt: int = None, downstream_nt: int = None):
     """
     Returns (tokens, positions) where positions are distances from stop codon.
     Stop codon positions: 0, 1, 2
-    Upstream (CDS): -context_nt, ..., -1
-    Downstream (UTR): 3, 4, ..., 3+context_nt-1
+    Upstream (CDS): -upstream_nt, ..., -1
+    Downstream (UTR): 3, 4, ..., 3+downstream_nt-1
+
+    Pass context_nt for symmetric windows, or upstream_nt/downstream_nt for asymmetric.
     """
-    start  = max(0, STOP_POS - context_nt)
-    end    = min(len(seq), STOP_POS + 3 + context_nt)
+    if upstream_nt is None:
+        upstream_nt = context_nt
+    if downstream_nt is None:
+        downstream_nt = context_nt
+    start  = max(0, STOP_POS - upstream_nt)
+    end    = min(len(seq), STOP_POS + 3 + downstream_nt)
     window = seq[start:end]
     tokens = np.array([NT2IDX.get(c, 4) for c in window], dtype=np.int64)
     # position relative to stop codon start
@@ -111,12 +118,18 @@ class StopCodonQueryPool(nn.Module):
 
 
 class ReadthroughModelV2(nn.Module):
-    def __init__(self, seq_len, context_nt, emb_dim=32, conv_ch=64,
+    def __init__(self, seq_len, context_nt=None, upstream_nt=None, downstream_nt=None,
+                 emb_dim=32, conv_ch=64,
                  d_model=64, nhead=4, ffn_dim=128, dropout=0.2, attn_window=7):
         super().__init__()
+        # Support both symmetric (context_nt) and asymmetric (upstream_nt/downstream_nt)
+        if upstream_nt is None:
+            upstream_nt = context_nt
+        if downstream_nt is None:
+            downstream_nt = context_nt
         # Stop-codon-relative positional embedding
-        self.pos_offset = context_nt
-        pos_vocab       = 2 * context_nt + 3
+        self.pos_offset = upstream_nt
+        pos_vocab       = upstream_nt + downstream_nt + 3
         self.nt_embed   = nn.Embedding(VOCAB_SIZE, emb_dim, padding_idx=4)
         self.pos_embed  = nn.Embedding(pos_vocab + 2, emb_dim)
 
@@ -231,9 +244,15 @@ def train_fold(model, train_loader, val_loader, scaler, args, device, ckpt_path=
 
 
 # ── cross-validation ──────────────────────────────────────────────────────────
-def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug'):
+def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug',
+           upstream_nt=None, downstream_nt=None):
     dropout = args.dropout if args.dropout is not None else default_dropout(context_nt)
-    suffix  = '_shuffled' if getattr(args, 'shuffle_seq', False) else ''
+    shuffle_sfx = '_shuffled' if getattr(args, 'shuffle_seq', False) else ''
+    if upstream_nt is not None or downstream_nt is not None:
+        window_tag = f'up{upstream_nt}_down{downstream_nt}nt'
+    else:
+        window_tag = f'context{context_nt}nt'
+    suffix = f'_{window_tag}{shuffle_sfx}'
     print(f'  dropout={dropout:.2f}  weight_decay={args.weight_decay}  attn_window={args.attn_window}')
 
     kf = KFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
@@ -261,8 +280,9 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug'):
                                   shuffle=False, num_workers=0, pin_memory=pin)
 
         model = ReadthroughModelV2(
-            seq_len=seq_len, context_nt=context_nt, dropout=dropout,
-            attn_window=args.attn_window).to(device)
+            seq_len=seq_len, context_nt=context_nt,
+            upstream_nt=upstream_nt, downstream_nt=downstream_nt,
+            dropout=dropout, attn_window=args.attn_window).to(device)
         ckpt_path = os.path.join(args.out_dir, f'checkpoint_{drug}_fold{fold}{suffix}.pt')
         y_true, y_pred = train_fold(model, train_loader, val_loader, sc, args, device, ckpt_path=ckpt_path)
         m = eval_metrics(y_true, y_pred)
@@ -293,10 +313,14 @@ def main():
     parser.add_argument('--lr',           type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-3)
     parser.add_argument('--loss',         default='huber', choices=['mse', 'huber'])
-    parser.add_argument('--cv_folds',     type=int, default=5)
-    parser.add_argument('--seed',         type=int, default=42)
-    parser.add_argument('--shuffle_seq',  action='store_true',
+    parser.add_argument('--cv_folds',      type=int, default=5)
+    parser.add_argument('--seed',          type=int, default=42)
+    parser.add_argument('--shuffle_seq',   action='store_true',
                         help='shuffle nucleotide tokens within each window (control experiment)')
+    parser.add_argument('--upstream_nt',   type=int, default=None,
+                        help='CDS context (overrides context_nt for upstream side)')
+    parser.add_argument('--downstream_nt', type=int, default=None,
+                        help='UTR context (overrides context_nt for downstream side)')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -304,16 +328,24 @@ def main():
     set_seed(args.seed)
     os.makedirs(args.out_dir, exist_ok=True)
 
-    df      = pd.read_csv(args.data)
-    seq_len = 2 * args.context_nt + 3
-    print(f'Context: ±{args.context_nt} nt  →  window = {seq_len} nt')
+    df = pd.read_csv(args.data)
+
+    # Resolve upstream / downstream context
+    upstream_nt   = args.upstream_nt   if args.upstream_nt   is not None else args.context_nt
+    downstream_nt = args.downstream_nt if args.downstream_nt is not None else args.context_nt
+    seq_len = upstream_nt + 3 + downstream_nt
+
+    if args.upstream_nt is not None or args.downstream_nt is not None:
+        print(f'Asymmetric window: {upstream_nt} nt upstream + stop codon + {downstream_nt} nt downstream  →  {seq_len} nt')
+    else:
+        print(f'Context: ±{args.context_nt} nt  →  window = {seq_len} nt')
     print(f'Sequences loaded: {len(df)}')
 
     # Encode all sequences once
     tokens_list, pos_list = [], []
     rng = np.random.default_rng(args.seed)
     for seq in df['nt_seq']:
-        tok, pos = extract_window(seq, args.context_nt)
+        tok, pos = extract_window(seq, upstream_nt=upstream_nt, downstream_nt=downstream_nt)
         tok = pad_or_trim(tok, seq_len, pad_val=4)
         pos = pad_or_trim(pos, seq_len, pad_val=0)
         if args.shuffle_seq:
@@ -338,8 +370,12 @@ def main():
 
     drugs = DRUGS if args.drug == 'all' else [args.drug]
 
-    suffix   = '_shuffled' if args.shuffle_seq else ''
-    out_path = os.path.join(args.out_dir, f'results_context{args.context_nt}nt{suffix}.json')
+    shuffle_sfx = '_shuffled' if args.shuffle_seq else ''
+    if args.upstream_nt is not None or args.downstream_nt is not None:
+        window_tag = f'up{upstream_nt}_down{downstream_nt}nt'
+    else:
+        window_tag = f'context{args.context_nt}nt'
+    out_path = os.path.join(args.out_dir, f'results_{window_tag}{shuffle_sfx}.json')
     if os.path.exists(out_path):
         with open(out_path) as f:
             all_results = json.load(f)
@@ -357,7 +393,8 @@ def main():
         valid = ~np.isnan(y_raw)
         mean_m, std_m = run_cv(
             X_tok[valid], X_pos[valid], y_raw[valid],
-            seq_len, args.context_nt, args, device, drug=drug)
+            seq_len, args.context_nt, args, device, drug=drug,
+            upstream_nt=upstream_nt, downstream_nt=downstream_nt)
 
         print(f'  MEAN  R²={mean_m["r2"]:.4f}±{std_m["r2"]:.4f}'
               f'  Pearson={mean_m["pearson"]:.4f}±{std_m["pearson"]:.4f}'
