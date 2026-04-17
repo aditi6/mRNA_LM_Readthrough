@@ -233,6 +233,7 @@ def train_fold(model, train_loader, val_loader, scaler, args, device, ckpt_path=
 # ── cross-validation ──────────────────────────────────────────────────────────
 def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug'):
     dropout = args.dropout if args.dropout is not None else default_dropout(context_nt)
+    suffix  = '_shuffled' if getattr(args, 'shuffle_seq', False) else ''
     print(f'  dropout={dropout:.2f}  weight_decay={args.weight_decay}  attn_window={args.attn_window}')
 
     kf = KFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
@@ -262,7 +263,7 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug'):
         model = ReadthroughModelV2(
             seq_len=seq_len, context_nt=context_nt, dropout=dropout,
             attn_window=args.attn_window).to(device)
-        ckpt_path = os.path.join(args.out_dir, f'checkpoint_{drug}_fold{fold}.pt')
+        ckpt_path = os.path.join(args.out_dir, f'checkpoint_{drug}_fold{fold}{suffix}.pt')
         y_true, y_pred = train_fold(model, train_loader, val_loader, sc, args, device, ckpt_path=ckpt_path)
         m = eval_metrics(y_true, y_pred)
         fold_metrics.append(m)
@@ -294,6 +295,8 @@ def main():
     parser.add_argument('--loss',         default='huber', choices=['mse', 'huber'])
     parser.add_argument('--cv_folds',     type=int, default=5)
     parser.add_argument('--seed',         type=int, default=42)
+    parser.add_argument('--shuffle_seq',  action='store_true',
+                        help='shuffle nucleotide tokens within each window (control experiment)')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -308,12 +311,20 @@ def main():
 
     # Encode all sequences once
     tokens_list, pos_list = [], []
+    rng = np.random.default_rng(args.seed)
     for seq in df['nt_seq']:
         tok, pos = extract_window(seq, args.context_nt)
-        tokens_list.append(pad_or_trim(tok, seq_len, pad_val=4))
-        pos_list.append(pad_or_trim(pos, seq_len, pad_val=0))
+        tok = pad_or_trim(tok, seq_len, pad_val=4)
+        pos = pad_or_trim(pos, seq_len, pad_val=0)
+        if args.shuffle_seq:
+            tok = rng.permutation(tok)   # shuffle tokens, keep positions fixed
+        tokens_list.append(tok)
+        pos_list.append(pos)
     X_tok = np.stack(tokens_list)   # (N, seq_len) int64
     X_pos = np.stack(pos_list)      # (N, seq_len) int64
+
+    if args.shuffle_seq:
+        print('*** SHUFFLE CONTROL: nucleotide tokens randomly permuted per sequence ***')
 
     def parse_drug_col(series):
         def _parse(v):
@@ -327,7 +338,8 @@ def main():
 
     drugs = DRUGS if args.drug == 'all' else [args.drug]
 
-    out_path = os.path.join(args.out_dir, f'results_context{args.context_nt}nt.json')
+    suffix   = '_shuffled' if args.shuffle_seq else ''
+    out_path = os.path.join(args.out_dir, f'results_context{args.context_nt}nt{suffix}.json')
     if os.path.exists(out_path):
         with open(out_path) as f:
             all_results = json.load(f)
