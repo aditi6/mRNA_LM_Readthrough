@@ -46,7 +46,14 @@ STOP_POS_IN_WINDOW = None   # context_nt (set from args)
 
 
 # ── sequence encoding ──────────────────────────────────────────────────────────
-def encode_seq(seq: str, seq_len: int) -> np.ndarray:
+def encode_seq(seq: str, seq_len: int, stop_pos: int = None,
+               upstream_nt: int = None, downstream_nt: int = None) -> np.ndarray:
+    if stop_pos is not None and (upstream_nt is not None or downstream_nt is not None):
+        up   = upstream_nt   if upstream_nt   is not None else seq_len
+        down = downstream_nt if downstream_nt is not None else seq_len
+        start = max(0, stop_pos - up)
+        end   = min(len(seq), stop_pos + 3 + down)
+        seq   = seq[start:end]
     arr = np.array([NT2IDX.get(c, 4) for c in seq], dtype=np.int64)
     if len(arr) >= seq_len:
         return arr[:seq_len]
@@ -291,7 +298,7 @@ def make_loader(tokens, positions, drug_ids, labels, sample_weights,
 
 
 # ── cross-validation ───────────────────────────────────────────────────────────
-def run_cv(tokens, drug_ids, labels, drug_names, args, device):
+def run_cv(tokens, drug_ids, labels, drug_names, args, device, suffix=''):
     # Stratify on drug × label combination
     strat_key = drug_ids * 2 + labels
 
@@ -342,7 +349,7 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
                     logits, labels, weight=sw)
 
         best_auprc, best_state, no_improve = -1.0, None, 0
-        ckpt_path = os.path.join(args.out_dir, f'checkpoint_fold{fold}.pt')
+        ckpt_path = os.path.join(args.out_dir, f'checkpoint_fold{fold}_{suffix}.pt')
 
         for epoch in range(1, args.epochs + 1):
             train_epoch(model, train_loader, optimizer, criterion, device)
@@ -419,10 +426,16 @@ def main():
     parser.add_argument('--batch_size',   type=int, default=256)
     parser.add_argument('--lr',           type=float, default=5e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-3)
-    parser.add_argument('--cv_folds',     type=int, default=5)
+    parser.add_argument('--cv_folds',     type=int, default=3)
     parser.add_argument('--seed',         type=int, default=42)
-    parser.add_argument('--save_preds',   action='store_true',
+    parser.add_argument('--save_preds',    action='store_true',
                         help='save labels/probs/drug_ids arrays to npz for plotting')
+    parser.add_argument('--shuffle_seq',   action='store_true',
+                        help='shuffle nucleotide tokens (control)')
+    parser.add_argument('--upstream_nt',   type=int, default=None,
+                        help='CDS context override (nt upstream of stop)')
+    parser.add_argument('--downstream_nt', type=int, default=None,
+                        help='UTR context override (nt downstream of stop)')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -437,19 +450,33 @@ def main():
     drug2id    = {d: i for i, d in enumerate(drug_names)}
     df['drug_id'] = df['drug'].map(drug2id)
 
-    seq_len = 2 * args.context_nt + 3
-    print(f'Context: ±{args.context_nt} nt  →  window = {seq_len} nt')
+    ctx = args.context_nt
+    up   = args.upstream_nt   if args.upstream_nt   is not None else ctx
+    down = args.downstream_nt if args.downstream_nt is not None else ctx
+    seq_len = up + 3 + down
+    if args.shuffle_seq:
+        suffix = f'ctx{ctx}nt_shuffled'
+    elif args.upstream_nt is not None or args.downstream_nt is not None:
+        suffix = f'up{up}_down{down}nt'
+    else:
+        suffix = f'ctx{ctx}nt'
+
+    print(f'Context: -{up}/+{down} nt  →  window = {seq_len} nt  [{suffix}]')
     print(f'Loss: {args.loss}  |  Transformer layers: {args.n_transformer_layers}')
     print(f'Drugs: {drug_names}')
 
-    # Check sequences are long enough
-    seq_lengths = df['nt_seq'].str.len()
-    short = (seq_lengths < seq_len).sum()
-    if short > 0:
-        print(f'WARNING: {short} sequences shorter than {seq_len}, will be padded')
+    # nt_seq is already pre-windowed at ±ctx nt; stop codon is at index ctx
+    stop_pos = ctx
 
     # Encode
-    tokens   = np.stack([encode_seq(s, seq_len) for s in df['nt_seq']])
+    rng = np.random.default_rng(42)
+    def _encode(s):
+        arr = encode_seq(s, seq_len, stop_pos=stop_pos,
+                         upstream_nt=args.upstream_nt, downstream_nt=args.downstream_nt)
+        if args.shuffle_seq:
+            arr = rng.permutation(arr)
+        return arr
+    tokens   = np.stack([_encode(s) for s in df['nt_seq']])
     drug_ids = df['drug_id'].values.astype(np.int64)
     labels   = df['label'].values.astype(np.int64)
 
@@ -461,11 +488,11 @@ def main():
 
     print(f'\nRunning {args.cv_folds}-fold stratified CV...')
     mean_m, std_m, per_drug_m, fold_metrics, raw_preds = run_cv(
-        tokens, drug_ids, labels, drug_names, args, device)
+        tokens, drug_ids, labels, drug_names, args, device, suffix=suffix)
 
     if args.save_preds:
         preds_path = os.path.join(args.out_dir,
-            f'preds_ctx{args.context_nt}_{args.loss}_{args.n_transformer_layers}layers.npz')
+            f'preds_{suffix}_{args.loss}_{args.n_transformer_layers}layers.npz')
         np.savez(preds_path,
                  labels=raw_preds[0], probs=raw_preds[1],
                  drug_ids=raw_preds[2], drug_names=np.array(drug_names))
@@ -490,7 +517,7 @@ def main():
     results = dict(mean=mean_m, std=std_m, per_drug=per_drug_m,
                    config=vars(args), drug_names=drug_names)
     out_path = os.path.join(args.out_dir,
-        f'results_ctx{args.context_nt}_{args.loss}_{args.n_transformer_layers}layers.json')
+        f'results_{suffix}_{args.loss}_{args.n_transformer_layers}layers.json')
     with open(out_path, 'w') as f:
         json.dump(results, f, indent=2)
     print(f'\nSaved to {out_path}')
