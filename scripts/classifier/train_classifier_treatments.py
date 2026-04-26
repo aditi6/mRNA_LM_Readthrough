@@ -308,8 +308,11 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device, suffix=''):
     n_drugs  = len(drug_names)
     seq_len  = tokens.shape[1]
     ctx      = args.context_nt
+    up   = args.upstream_nt   if args.upstream_nt   is not None else ctx
+    down = args.downstream_nt if args.downstream_nt is not None else ctx
 
-    pos_arr = make_pos_array(ctx).astype(np.int64)   # (seq_len,)
+    # Build position array matching the actual window
+    pos_arr = np.arange(-up, down + 3, dtype=np.int64)[:seq_len]  # (seq_len,)
 
     for fold, (tr_idx, val_idx) in enumerate(kf.split(tokens, strat_key), 1):
         set_seed(args.seed + fold)
@@ -330,7 +333,7 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device, suffix=''):
             args.batch_size, shuffle=False)
 
         model = ReadthroughClassifier(
-            n_drugs=n_drugs, seq_len=seq_len, context_nt=ctx,
+            n_drugs=n_drugs, seq_len=seq_len, context_nt=up,
             dropout=args.dropout, attn_window=args.attn_window,
             n_transformer_layers=args.n_transformer_layers).to(device)
 
