@@ -105,12 +105,17 @@ class DrugConditionedQueryPool(nn.Module):
             d_model, num_heads=nhead, batch_first=True, dropout=0.0)
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, x, drug_emb):          # x:(B,L,d_model)  drug_emb:(B,drug_emb_dim)
+    def forward(self, x, drug_emb, return_attn=False):  # x:(B,L,d_model)  drug_emb:(B,drug_emb_dim)
         # Project drug embedding to d_model and shift the base query
         q = self.base_query.expand(x.size(0), -1, -1) \
             + self.drug_proj(drug_emb).unsqueeze(1)    # (B,1,d_model)
-        out, _ = self.cross_attn(q, x, x)             # (B,1,d_model)
-        return self.norm(out.squeeze(1))               # (B,d_model)
+        out, attn = self.cross_attn(q, x, x,
+                                    need_weights=True,
+                                    average_attn_weights=True)  # attn: (B, 1, L)
+        out = self.norm(out.squeeze(1))                # (B, d_model)
+        if return_attn:
+            return out, attn.squeeze(1)                # (B, d_model), (B, L)
+        return out
 
 
 class ReadthroughClassifier(nn.Module):
@@ -153,7 +158,7 @@ class ReadthroughClassifier(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(32, 1))
 
-    def forward(self, tokens, positions, drug_ids):
+    def forward(self, tokens, positions, drug_ids, return_attn=False):
         # Sequence embedding
         pos_idx  = (positions + self.pos_offset).clamp(min=0)
         drug_emb = self.drug_embed(drug_ids)                      # (B, drug_emb_dim)
@@ -164,8 +169,10 @@ class ReadthroughClassifier(nn.Module):
         x = self.conv2(x)                                         # (B, d_model, L)
         x = self.transformer(x.permute(0, 2, 1),
                              mask=self.local_mask)                # (B, L, d_model)
-        x = self.pool(x, drug_emb)                                 # (B, d_model)
-        return self.head(x).squeeze(-1)                           # (B,)
+        if return_attn:
+            pooled, attn = self.pool(x, drug_emb, return_attn=True)
+            return self.head(pooled).squeeze(-1), attn  # (B,), (B, L)
+        return self.head(self.pool(x, drug_emb)).squeeze(-1)      # (B,)
 
 
 # ── metrics ────────────────────────────────────────────────────────────────────
@@ -290,6 +297,7 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
 
     kf = StratifiedKFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
     fold_metrics = []
+    fold_raw_preds = []
     n_drugs  = len(drug_names)
     seq_len  = tokens.shape[1]
     ctx      = args.context_nt
@@ -362,6 +370,7 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
 
         model.load_state_dict(best_state)
         val_labels, val_probs, val_drugs = predict(model, val_loader, device)
+        fold_raw_preds.append((val_labels, val_probs, val_drugs))
         m = eval_metrics(val_labels, val_probs,
                          drug_labels=val_drugs, drug_names=drug_names)
         fold_metrics.append(m)
@@ -388,7 +397,11 @@ def run_cv(tokens, drug_ids, labels, drug_names, args, device):
                 k: float(np.mean([v[k] for v in vals]))
                 for k in ['auroc', 'auprc', 'f1', 'n', 'pos']}
 
-    return mean, std, per_drug_agg, fold_metrics
+    all_labels_cat  = np.concatenate([f[0] for f in fold_raw_preds])
+    all_probs_cat   = np.concatenate([f[1] for f in fold_raw_preds])
+    all_drugs_cat   = np.concatenate([f[2] for f in fold_raw_preds])
+
+    return mean, std, per_drug_agg, fold_metrics, (all_labels_cat, all_probs_cat, all_drugs_cat)
 
 
 # ── main ───────────────────────────────────────────────────────────────────────
@@ -408,6 +421,8 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=1e-3)
     parser.add_argument('--cv_folds',     type=int, default=5)
     parser.add_argument('--seed',         type=int, default=42)
+    parser.add_argument('--save_preds',   action='store_true',
+                        help='save labels/probs/drug_ids arrays to npz for plotting')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -445,8 +460,16 @@ def main():
         print(f'  {dname:<20} n={n:<5} pos={p:<5} ({100*p/n:.1f}%)')
 
     print(f'\nRunning {args.cv_folds}-fold stratified CV...')
-    mean_m, std_m, per_drug_m, fold_metrics = run_cv(
+    mean_m, std_m, per_drug_m, fold_metrics, raw_preds = run_cv(
         tokens, drug_ids, labels, drug_names, args, device)
+
+    if args.save_preds:
+        preds_path = os.path.join(args.out_dir,
+            f'preds_ctx{args.context_nt}_{args.loss}_{args.n_transformer_layers}layers.npz')
+        np.savez(preds_path,
+                 labels=raw_preds[0], probs=raw_preds[1],
+                 drug_ids=raw_preds[2], drug_names=np.array(drug_names))
+        print(f'[preds saved to {preds_path}]')
 
     print(f'\n── OVERALL (mean ± std across {args.cv_folds} folds) ──')
     print(f'AUROC={mean_m["auroc"]:.4f}±{std_m["auroc"]:.4f}'

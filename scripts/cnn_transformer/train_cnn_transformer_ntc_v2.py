@@ -111,10 +111,15 @@ class StopCodonQueryPool(nn.Module):
             d_model, num_heads=nhead, batch_first=True, dropout=0.0)
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, x):                        # x: (B, L, d_model)
+    def forward(self, x, return_attn=False):      # x: (B, L, d_model)
         q   = self.query.expand(x.size(0), -1, -1)   # (B, 1, d_model)
-        out, _ = self.cross_attn(q, x, x)             # (B, 1, d_model)
-        return self.norm(out.squeeze(1))               # (B, d_model)
+        out, attn = self.cross_attn(q, x, x,
+                                    need_weights=True,
+                                    average_attn_weights=True)  # attn: (B, 1, L)
+        out = self.norm(out.squeeze(1))                # (B, d_model)
+        if return_attn:
+            return out, attn.squeeze(1)                # (B, d_model), (B, L)
+        return out
 
 
 class ReadthroughModelV2(nn.Module):
@@ -155,13 +160,16 @@ class ReadthroughModelV2(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(d_model, 32), nn.GELU(), nn.Linear(32, 1))
 
-    def forward(self, tokens, positions):         # both: (B, L)
+    def forward(self, tokens, positions, return_attn=False):  # both: (B, L)
         pos_idx = (positions + self.pos_offset).clamp(min=0)
         x = self.nt_embed(tokens) + self.pos_embed(pos_idx)  # (B, L, emb_dim)
         x = self.conv1(x.permute(0, 2, 1))       # (B, conv_ch, L)
         x = self.conv2(x)                         # (B, d_model, L)
         x = self.transformer(                     # (B, L, d_model)
             x.permute(0, 2, 1), mask=self.local_mask)
+        if return_attn:
+            pooled, attn = self.pool(x, return_attn=True)
+            return self.head(pooled).squeeze(-1), attn  # (B,), (B, L)
         return self.head(self.pool(x)).squeeze(-1)  # (B,)
 
 
@@ -257,6 +265,7 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug',
 
     kf = KFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
     fold_metrics = []
+    all_true, all_pred = [], []
     pin = device.type == 'cuda'
 
     for fold, (tr_idx, val_idx) in enumerate(kf.split(X_tok), 1):
@@ -285,6 +294,8 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug',
             dropout=dropout, attn_window=args.attn_window).to(device)
         ckpt_path = os.path.join(args.out_dir, f'checkpoint_{drug}_fold{fold}{suffix}.pt')
         y_true, y_pred = train_fold(model, train_loader, val_loader, sc, args, device, ckpt_path=ckpt_path)
+        all_true.append(y_true)
+        all_pred.append(y_pred)
         m = eval_metrics(y_true, y_pred)
         fold_metrics.append(m)
         print(f'    fold {fold}: R²={m["r2"]:.4f}  Pearson={m["pearson"]:.4f}'
@@ -293,7 +304,8 @@ def run_cv(X_tok, X_pos, y, seq_len, context_nt, args, device, drug='drug',
     keys = fold_metrics[0].keys()
     mean = {k: float(np.mean([f[k] for f in fold_metrics])) for k in keys}
     std  = {k: float(np.std( [f[k] for f in fold_metrics])) for k in keys}
-    return mean, std
+    preds = (np.concatenate(all_true), np.concatenate(all_pred))
+    return mean, std, preds
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -321,6 +333,8 @@ def main():
                         help='CDS context (overrides context_nt for upstream side)')
     parser.add_argument('--downstream_nt', type=int, default=None,
                         help='UTR context (overrides context_nt for downstream side)')
+    parser.add_argument('--save_preds',    action='store_true',
+                        help='save observed vs predicted arrays to npz for plotting')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -391,10 +405,14 @@ def main():
         print(f'\n=== {drug} ===')
         y_raw = parse_drug_col(df[drug])
         valid = ~np.isnan(y_raw)
-        mean_m, std_m = run_cv(
+        mean_m, std_m, preds = run_cv(
             X_tok[valid], X_pos[valid], y_raw[valid],
             seq_len, args.context_nt, args, device, drug=drug,
             upstream_nt=upstream_nt, downstream_nt=downstream_nt)
+        if args.save_preds:
+            preds_path = os.path.join(args.out_dir, f'preds_{drug}_{window_tag}{shuffle_sfx}.npz')
+            np.savez(preds_path, y_true=preds[0], y_pred=preds[1])
+            print(f'  [preds saved to {preds_path}]')
 
         print(f'  MEAN  R²={mean_m["r2"]:.4f}±{std_m["r2"]:.4f}'
               f'  Pearson={mean_m["pearson"]:.4f}±{std_m["pearson"]:.4f}'
