@@ -40,9 +40,11 @@ VOCAB_SIZE  = 5
 
 
 # ── sequence utilities ─────────────────────────────────────────────────────────
-def extract_window(seq: str, context_nt: int):
-    start     = max(0, STOP_POS - context_nt)
-    end       = min(len(seq), STOP_POS + 3 + context_nt)
+def extract_window(seq: str, context_nt: int, upstream_nt=None, downstream_nt=None):
+    up   = context_nt if upstream_nt   is None else upstream_nt
+    down = context_nt if downstream_nt is None else downstream_nt
+    start     = max(0, STOP_POS - up)
+    end       = min(len(seq), STOP_POS + 3 + down)
     window    = seq[start:end]
     tokens    = np.array([NT2IDX.get(c, 4) for c in window], dtype=np.int64)
     positions = np.arange(start - STOP_POS, end - STOP_POS, dtype=np.int64)
@@ -373,7 +375,13 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=1e-3)
     parser.add_argument('--cv_folds',     type=int, default=5)
     parser.add_argument('--seed',         type=int, default=42)
-    parser.add_argument('--save_preds',   action='store_true')
+    parser.add_argument('--save_preds',    action='store_true')
+    parser.add_argument('--shuffle_seq',   action='store_true',
+                        help='shuffle nucleotide tokens (control)')
+    parser.add_argument('--upstream_nt',   type=int, default=None,
+                        help='CDS context (overrides context_nt upstream)')
+    parser.add_argument('--downstream_nt', type=int, default=None,
+                        help='UTR context (overrides context_nt downstream)')
     args = parser.parse_args()
 
     assert args.context_nt <= 72, 'PTC sequences only have 72 nt on each side'
@@ -384,17 +392,25 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     df = pd.read_csv(args.data).dropna(subset=['nt_seq']).reset_index(drop=True)
-    context_nt = args.context_nt
-    seq_len    = 2 * context_nt + 3
-    n_seqs     = len(df)
+    context_nt  = args.context_nt
+    upstream_nt   = args.upstream_nt
+    downstream_nt = args.downstream_nt
+    up   = context_nt if upstream_nt   is None else upstream_nt
+    down = context_nt if downstream_nt is None else downstream_nt
+    seq_len = up + 3 + down
+    n_seqs  = len(df)
     print(f'Sequences: {n_seqs}  |  Drugs: {len(DRUG_NAMES)}'
-          f'  |  Context: ±{context_nt} nt  →  window = {seq_len} nt')
+          f'  |  Context: -{up}/+{down} nt  →  window = {seq_len} nt')
 
     # Encode all sequences once
     tokens_list, pos_list = [], []
+    rng = np.random.default_rng(42)
     for seq in df['nt_seq']:
-        tok, pos = extract_window(seq, context_nt)
-        tokens_list.append(pad_or_trim(tok, seq_len, pad_val=4))
+        tok, pos = extract_window(seq, context_nt, upstream_nt, downstream_nt)
+        tok = pad_or_trim(tok, seq_len, pad_val=4)
+        if args.shuffle_seq:
+            tok = rng.permutation(tok)
+        tokens_list.append(tok)
         pos_list.append(pad_or_trim(pos, seq_len, pad_val=0))
     X_tok = np.stack(tokens_list).astype(np.int64)  # (n_seqs, seq_len)
     X_pos = np.stack(pos_list).astype(np.int64)     # (n_seqs, seq_len)
@@ -420,8 +436,16 @@ def main():
     print(f'\nTotal training pairs: {len(tokens_all)}'
           f'  |  Running {args.cv_folds}-fold CV (split on sequences)')
 
+    # Build suffix for ablation naming
+    if args.shuffle_seq:
+        suffix = f'ctx{context_nt}nt_shuffled'
+    elif upstream_nt is not None or downstream_nt is not None:
+        suffix = f'up{up}_down{down}nt'
+    else:
+        suffix = f'ctx{context_nt}nt'
+
     # Check if already done
-    out_path = os.path.join(args.out_dir, f'results_ctx{context_nt}nt.json')
+    out_path = os.path.join(args.out_dir, f'results_{suffix}.json')
     if os.path.exists(out_path):
         print(f'Results already exist at {out_path}, skipping.')
         return
@@ -452,7 +476,7 @@ def main():
     print(f'\nSaved to {out_path}')
 
     if args.save_preds:
-        preds_path = os.path.join(args.out_dir, f'preds_ctx{context_nt}nt.npz')
+        preds_path = os.path.join(args.out_dir, f'preds_{suffix}.npz')
         np.savez(preds_path,
                  y_true=raw_preds[0], y_pred=raw_preds[1],
                  drug_ids=raw_preds[2],
